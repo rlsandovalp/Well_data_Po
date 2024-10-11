@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "well-wtd-processing"
+version = "0.1.0"
+description = "Processing raw data of wells to recover temporal average of water table depths. This is done for diverse regions."
+authors = ["Leonardo Sandoval"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+numpy = "^2.1.2"
+pandas = "^2.2.3"
+matplotlib = "^3.9.2"
+pyproj = "^3.7.0"
+fiona = "^1.10.1"
+opencv-python = "^4.10.0.84"
+sk-video = "^1.1.10"
+openpyxl = "^3.1.5"
+
+
+[tool.poetry.group.dev.dependencies]
+ipykernel = "^6.29.5"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
