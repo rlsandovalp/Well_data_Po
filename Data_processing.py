@@ -8,12 +8,13 @@ import gc, fiona, cv2, skvideo.io
 
 # %% Classes definition
 class well_data:
-    def __init__(self, well_ids, well_x_coords, well_y_coords, well_wtd, observation_dates):
+    def __init__(self, well_ids, well_x_coords, well_y_coords, well_wtd, observation_dates, Region):
         self.well_ids = well_ids
         self.well_x_coords = well_x_coords
         self.well_y_coords = well_y_coords
         self.well_wtd = well_wtd
         self.observation_dates = observation_dates
+        self.Region = Region
 
     def coordinate_transformation(self, x_coord_before, y_coord_before, CS_origin, CS_target):
         transformer = Transformer.from_crs(CS_origin, CS_target)
@@ -26,11 +27,25 @@ class well_data:
         x_coords = np.zeros(len(unique_wells))
         y_coords = np.zeros(len(unique_wells))
         avg_wtd = np.zeros(len(unique_wells))
+        region = [self.Region for _ in range(len(unique_wells))]
         for i, well in enumerate(unique_wells):
             avg_wtd[i] = np.mean(self.well_wtd[self.well_ids == well])
             x_coords[i] = self.well_x_coords[self.well_ids == well][0]
             y_coords[i] = self.well_y_coords[self.well_ids == well][0]
-        summary_data = pd.DataFrame({'Well ID': unique_wells, 'X_54012': x_coords, 'Y_54012': y_coords, 'Average WTD': avg_wtd})
+        summary_data = pd.DataFrame({'Well ID': unique_wells, 'X_54012': x_coords, 'Y_54012': y_coords, 'Average WTD': avg_wtd, 'Region': region})
+        return summary_data
+    
+    def standard_deviation_wtd(self):
+        unique_wells = np.unique(self.well_ids)
+        x_coords = np.zeros(len(unique_wells))
+        y_coords = np.zeros(len(unique_wells))
+        std_wtd = np.zeros(len(unique_wells))
+        region = [self.Region for _ in range(len(unique_wells))]
+        for i, well in enumerate(unique_wells):
+            std_wtd[i] = np.std(self.well_wtd[self.well_ids == well])
+            x_coords[i] = self.well_x_coords[self.well_ids == well][0]
+            y_coords[i] = self.well_y_coords[self.well_ids == well][0]
+        summary_data = pd.DataFrame({'Well ID': unique_wells, 'X_54012': x_coords, 'Y_54012': y_coords, 'Standard Deviation WTD': std_wtd, 'Region': region})
         return summary_data
     
     def data_frame(self):
@@ -58,6 +73,25 @@ class well_data:
                     # Convert plain string to float if it's a measurementid number
                     new_measurements[n_measurement] = float(measurement.replace(',', '.'))
         self.well_wtd = new_measurements
+
+    def keep_good_data(self):
+            measurements = self.well_wtd
+            new_measurements = np.copy(measurements)
+            for n_measurement, measurement in enumerate(measurements):
+                if isinstance(measurement, str):
+                    measurement = measurement.strip()  # Remove any surrounding whitespace
+                    # Handle strings starting with '<' or '>'
+                    if measurement.startswith('<') or measurement.startswith('>'):
+                        new_measurements[n_measurement] = -999
+                    else:
+                        # Convert plain string to float if it's a measurementid number
+                        new_measurements[n_measurement] = float(measurement.replace(',', '.'))
+            self.well_wtd = new_measurements[new_measurements != -999]
+            self.well_ids = self.well_ids[new_measurements != -999]
+            self.well_x_coords = self.well_x_coords[new_measurements != -999]
+            self.well_y_coords = self.well_y_coords[new_measurements != -999]
+            self.observation_dates = self.observation_dates[new_measurements != -999]
+
 class anagrafica:
     def __init__(self, well_ids, well_x_coords, well_y_coords):
         self.well_ids = well_ids
@@ -77,7 +111,8 @@ all_data_lombardy = pd.DataFrame()
 for province in provinces_lombardy:
     all_data_lombardy = pd.concat([all_data_lombardy, pd.read_excel(f'Lombardia/Dati quantitativi {province}_2000_2021.xlsx')])
 
-all_data_lombardy = well_data(all_data_lombardy['CODICE PUNTO'], all_data_lombardy['X_WGS84'], all_data_lombardy['Y_WGS84'], all_data_lombardy['MISURA SOGGIACENZA [m]'], all_data_lombardy['DATA'])
+all_data_lombardy = all_data_lombardy[all_data_lombardy['TIPO'] == 'PIEZOMETRO']
+all_data_lombardy = well_data(all_data_lombardy['CODICE PUNTO'], all_data_lombardy['X_WGS84'], all_data_lombardy['Y_WGS84'], all_data_lombardy['MISURA SOGGIACENZA [m]'], all_data_lombardy['DATA'], 'Lombardy')
 
 del provinces_lombardy, province
 gc.collect()
@@ -85,6 +120,7 @@ gc.collect()
 all_data_lombardy.coordinate_transformation(all_data_lombardy.well_x_coords, all_data_lombardy.well_y_coords, 'epsg:32632', "+proj=eck4 +lon_0=0 +datum=WGS84 +units=m no_defs")
 
 average_wtd_lombardy = all_data_lombardy.average_wtd()
+std_wtd_lombardy = all_data_lombardy.standard_deviation_wtd()
 transient_wtd_lombardy = all_data_lombardy.data_frame()
 
 # %% PIEDMONT
@@ -222,11 +258,12 @@ ids_wells = np.concatenate(ids_wells)
 wtds = np.concatenate(wtds)
 dates = np.concatenate(dates)
 
-all_data_piedmont = well_data(ids_wells, x_coords, y_coords, wtds, dates)
-transient_wtd_piedmont = all_data_piedmont.data_frame()
+all_data_piedmont = well_data(ids_wells, x_coords, y_coords, wtds, dates, 'Piedmont')
 del shape, wells_piedmont, ids_wells, x_coords, y_coords, wtds, dates, well, n_points_well, df_well, feature, x_coord, y_coord
 gc.collect()
 average_wtd_piedmont = all_data_piedmont.average_wtd()
+std_wtd_piedmont = all_data_piedmont.standard_deviation_wtd()
+transient_wtd_piedmont = all_data_piedmont.data_frame()
 
 # %% EMILIA-ROMAGNA
 years_levels = [2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020]
@@ -244,9 +281,9 @@ A2018 = pd.read_excel(f'EmiliaRomagna/Anagrafica2018.xlsx')
 A2019 = pd.read_excel(f'EmiliaRomagna/Anagrafica2019.xlsx')
 A2020 = pd.read_excel(f'EmiliaRomagna/Anagrafica2020.xlsx')
 
-A2012 = anagrafica(A2012['Codice'], A2012['X_UTM-ED50*'], A2012['Y_UTM-ED50*']+400000)
-A2013 = anagrafica(A2013['Codice'], A2013['X_UTM-ED50*'], A2013['Y_UTM-ED50*']+400000)
-A2014 = anagrafica(A2014['Codice'], A2014['X_UTM-ED50*'], A2014['Y_UTM-ED50*']+400000)
+A2012 = anagrafica(A2012['Codice'], A2012['X_UTM-ED50*'], A2012['Y_UTM-ED50*']+4000000)
+A2013 = anagrafica(A2013['Codice'], A2013['X_UTM-ED50*'], A2013['Y_UTM-ED50*']+4000000)
+A2014 = anagrafica(A2014['Codice'], A2014['X_UTM-ED50*'], A2014['Y_UTM-ED50*']+4000000)
 A2015 = anagrafica(A2015['Codice'], A2015['XUTM-ETRS89 (fuso 32)'], A2015['YUTM-ETRS89 (fuso 32)'])
 A2016 = anagrafica(A2016['Codice'], A2016['XUTM-ETRS89 (fuso 32)'], A2016['YUTM-ETRS89 (fuso 32)'])
 A2017 = anagrafica(A2017['Codice'], A2017['X_UTM-ED50*'], A2017['Y_UTM-ED50*'])
@@ -300,31 +337,37 @@ ids = np.concatenate(ids)
 wtds = np.concatenate(wtds)
 dates = np.concatenate(dates)
 
-all_data_emilia = well_data(ids, x_coords, y_coords, wtds, dates)
+all_data_emilia = well_data(ids, x_coords, y_coords, wtds, dates, 'Emilia-Romagna')
 del unique_wells, well, data_well, n_points_well, ids, x_coords, y_coords, wtds, dates, all_anagrafica
 gc.collect()
 
-all_data_emilia.clean_data()
+all_data_emilia.keep_good_data()
 average_wtd_emilia = all_data_emilia.average_wtd()
+std_wtd_emilia = all_data_emilia.standard_deviation_wtd()
 transient_wtd_emilia = all_data_emilia.data_frame()
 
 
-# %% Join all regions and compute average wtd per well
-wtd_all_regions = pd.concat([transient_wtd_lombardy, transient_wtd_piedmont, transient_wtd_emilia])
-wtd_all_regions['Date'] = pd.to_datetime(wtd_all_regions['Date'])
-wtd_all_regions['average_wtd'] = np.zeros(len(wtd_all_regions['WTD']))
-for id in np.unique(wtd_all_regions['Well ID']):
-	wtdAve = np.average(wtd_all_regions['WTD'][wtd_all_regions['Well ID']== id])
-	wtd_all_regions.loc[wtd_all_regions['Well ID']== id, 'average_wtd'] = wtdAve
 
 # %% Remove wells with less than 30 measurements or with negative values
+# all_transient = pd.concat([transient_wtd_lombardy, transient_wtd_piedmont, transient_wtd_emilia])
+all_transient = transient_wtd_lombardy
 wells_to_remove = []
-
-for id in np.unique(wtd_all_regions['Well ID']):
-    if len(wtd_all_regions['Well ID'][wtd_all_regions['Well ID']==id])<30 or np.any(wtd_all_regions['WTD'][wtd_all_regions['Well ID']==id]<0):
+for id in np.unique(all_transient['Well ID']):
+    if len(all_transient['Well ID'][all_transient['Well ID']==id])<30 or np.any(all_transient['WTD'][all_transient['Well ID']==id]<0):
         wells_to_remove.append(id)
 
-wtd_all_regions = wtd_all_regions[~wtd_all_regions['Well ID'].isin(wells_to_remove)]
+all_transient = all_transient[~all_transient['Well ID'].isin(wells_to_remove)]
+
+# %% Compute average WTD per well and save data
+all_transient.drop(columns = ['Date'], inplace = True)
+all_steady_state = all_transient.groupby('Well ID').mean()
+std_steady_state = all_transient.groupby('Well ID').std()
+std_steady_state.rename(columns = {'WTD': 'Standard Deviation WTD'}, inplace = True)
+std_steady_state['X_54012'] = all_steady_state['X_54012']
+std_steady_state['Y_54012'] = all_steady_state['Y_54012']
+all_steady_state.to_csv('WTD_obs_lom_Leonardo.csv')
+std_steady_state.to_csv('WTD_std_lom_Leonardo.csv')
+
 # %% Save data for plots
 startT = datetime.strptime('2000-01-01 00:00:00', "%Y-%m-%d %H:%M:%S")
 endT = datetime.strptime('2020-12-31 00:00:00', "%Y-%m-%d %H:%M:%S")
@@ -385,8 +428,7 @@ for i in range(len(time_steps)-1):
     plt.savefig(f"Figures/Figure_{i}.jpg")
     plt.close(fig)
 
-# %% 
-# Create a video from the figures
+# %% Create a video from the figures
 one_figure = cv2.imread(f'Figures/Figure_0.jpg')
 height, width, layers = one_figure.shape
 out_video =  np.empty([len(time_steps)-1, height, width, 3], dtype = np.uint8)
